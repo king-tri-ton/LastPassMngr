@@ -4,9 +4,18 @@ on:
   push:
     branches:
       - master
+    paths:
+      - '**.py'
+      - 'requirements.txt'
+      - 'Logo.ico'
+      - '.github/workflows/build_and_scan.yml'
   pull_request:
     branches:
       - master
+    paths:
+      - '**.py'
+      - 'requirements.txt'
+      - '.github/workflows/build_and_scan.yml'
 
 jobs:
   build:
