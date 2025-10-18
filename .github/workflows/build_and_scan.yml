@@ -29,18 +29,7 @@ jobs:
 
     - name: Build EXE
       run: |
-        pyinstaller ^
-          --onefile ^
-          --noconsole ^
-          --name "LastPassMngr" ^
-          --icon "Logo.ico" ^
-          --add-data "Logo.ico;." ^
-          --hidden-import password_generator ^
-          --hidden-import crypto_manager ^
-          --hidden-import save_dialog ^
-          --hidden-import manager_window ^
-          --hidden-import master_password_dialog ^
-          app.py
+        pyinstaller --onefile --noconsole --name "LastPassMngr" --icon "Logo.ico" --add-data "Logo.ico;." --hidden-import password_generator --hidden-import crypto_manager --hidden-import save_dialog --hidden-import manager_window --hidden-import master_password_dialog app.py
       env:
         PYTHONIOENCODING: utf-8
 
