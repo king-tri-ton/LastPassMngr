@@ -278,3 +278,42 @@ class PasswordStorage:
 			return ["General"]
 
 		return categories
+
+	def move_password(self, site, login, old_category, new_category):
+		try:
+			# Загружаем актуальные данные
+			passwords = self._load_data()
+			
+			# 1. Проверяем наличие записи в старой категории
+			if old_category in passwords and site in passwords[old_category]:
+				entries = passwords[old_category][site]
+				entry_to_move = None
+				
+				# Ищем запись с конкретным логином
+				for i, entry in enumerate(entries):
+					if entry['login'] == login:
+						entry_to_move = entries.pop(i)
+						break
+				
+				if entry_to_move:
+					# Чистим старую категорию, если она опустела
+					if not passwords[old_category][site]:
+						del passwords[old_category][site]
+					
+					# 2. Перекидываем в новую категорию
+					if new_category not in passwords:
+						passwords[new_category] = {}
+					
+					if site not in passwords[new_category]:
+						passwords[new_category][site] = []
+					
+					passwords[new_category][site].append(entry_to_move)
+					
+					# 3. ВАЖНО: Вызываем твой родной метод сохранения _save_data
+					self._save_data(passwords) 
+					return True
+			return False
+		except Exception as e:
+			print(f"Error moving password: {e}")
+			return False
+

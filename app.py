@@ -2,9 +2,9 @@ import os
 import sys
 import pyperclip
 from pathlib import Path
-from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon, QCursor
-from PyQt6.QtCore import QTimer, Qt, QPoint
+from PyQt6.QtCore import QTimer, QPoint
 
 from generator import generate_password
 from storage import PasswordStorage
@@ -12,10 +12,13 @@ from saver import SavePasswordDialog
 from manager import PasswordManagerWindow
 from unlock import MasterPasswordDialog
 
+import theme
+
 
 class PasswordGeneratorApp:
 	def __init__(self):
 		self.app = QApplication(sys.argv)
+		self.app.setStyleSheet(theme.style)
 		self.app.setQuitOnLastWindowClosed(False)
 
 		master_password = self.request_master_password()
@@ -26,11 +29,10 @@ class PasswordGeneratorApp:
 			self.storage = PasswordStorage(master_password)
 
 			if not self.storage.verify_master_password():
-				QMessageBox.critical(None, "Error", "Wrong master password!")
 				sys.exit(1)
 
 		except Exception as e:
-			QMessageBox.critical(None, "Error", f"Failed to initialize: {str(e)}")
+			print(f"Error | Failed to initialize: {str(e)}")
 			sys.exit(1)
 
 		self.manager_window = None
@@ -57,14 +59,16 @@ class PasswordGeneratorApp:
 		"""Запрашивает мастер-пароль при запуске"""
 		storage_dir = Path.home() / "Documents" / "LastPassMngr"
 		storage_file = storage_dir / "passwords.enc"
-
 		is_first_time = not storage_file.exists()
 
 		dialog = MasterPasswordDialog(is_first_time=is_first_time)
 
-		if dialog.exec():
-			return dialog.get_password()
-		return None
+		while True:
+			if dialog.exec():
+				pwd = dialog.get_password()
+				return pwd
+			else:
+				return None
 	
 	def create_menu(self):
 		self.menu = QMenu()
@@ -87,7 +91,7 @@ class PasswordGeneratorApp:
 			screen = QApplication.primaryScreen().availableGeometry()
 			cursor_pos = QCursor.pos()
 
-			adjusted_pos = QPoint(cursor_pos.x(), min(cursor_pos.y(), screen.bottom() - self.menu.sizeHint().height() - 10))
+			adjusted_pos = QPoint(cursor_pos.x(), min(cursor_pos.y(), screen.bottom() - self.menu.sizeHint().height() - 4))
 
 			self.menu.popup(adjusted_pos)
 	
@@ -95,12 +99,12 @@ class PasswordGeneratorApp:
 		password = generate_password(16)
 		pyperclip.copy(password)
 
-		self.tray.showMessage(
-			"Password Generated",
-			"Password copied to clipboard",
-			QSystemTrayIcon.MessageIcon.Information,
-			2000
-		)
+		# self.tray.showMessage(
+		# 	"Password Generated",
+		# 	"Password copied to clipboard",
+		# 	QSystemTrayIcon.MessageIcon.Information,
+		# 	2000
+		# )
 
 		QTimer.singleShot(100, lambda: self.show_save_dialog(password))
 	

@@ -1,10 +1,10 @@
 # Master password dialog (MasterPasswordDialog class)
 
-import os
-import sys
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, 
-							 QLabel, QLineEdit, QPushButton, QCheckBox)
+							 QLabel, QLineEdit, QPushButton, QCheckBox, QWidget)
 from PyQt6.QtCore import Qt
+
+from storage import PasswordStorage
 
 
 class MasterPasswordDialog(QDialog):
@@ -15,71 +15,76 @@ class MasterPasswordDialog(QDialog):
 		self.init_ui()
 
 	def init_ui(self):
-		if self.is_first_time:
-			self.setWindowTitle("Create Master Password")
-		else:
-			self.setWindowTitle("Enter Master Password")
+		self.setWindowTitle("LastPassMngr")
+		# Убираем стандартную рамку Windows, чтобы наша золотая рамка была видна
+		self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+		self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) # Нужно для скруглений/рамок
 
-		self.setFixedSize(400, 180)
-		self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
+		# ГЛАВНЫЙ КОНТЕЙНЕР (нужен для отрисовки рамки через QSS)
+		self.main_container = QWidget()
+		self.main_container.setObjectName("MainContainer")
+		
+		layout = QVBoxLayout(self.main_container)
+		layout.setContentsMargins(30, 30, 30, 30)
+		layout.setSpacing(15)
 
-		if getattr(sys, 'frozen', False):
-			base_path = sys._MEIPASS
-		else:
-			base_path = os.path.dirname(os.path.abspath(__file__))
+		# 1. ЗАГОЛОВОК
+		self.title_label = QLabel("MASTER KEY")
+		self.title_label.setObjectName("GradientLabel")
+		self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		layout.addWidget(self.title_label)
 
-		icon_path = os.path.join(base_path, "Logo.ico")
-		if os.path.exists(icon_path):
-			from PyQt6.QtGui import QIcon
-			self.setWindowIcon(QIcon(icon_path))
+		status_text = "Create your secure vault" if self.is_first_time else "Vault is locked"
+		self.subtitle = QLabel(status_text)
+		self.subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		self.subtitle.setStyleSheet("color: #80868b; font-size: 11px;")
+		layout.addWidget(self.subtitle)
 
-		layout = QVBoxLayout()
-
-		# Заголовок
-		if self.is_first_time:
-			title = QLabel("Create your master password\nThis password will protect all your stored passwords")
-		else:
-			title = QLabel("Enter your master password to unlock")
-
-		title.setWordWrap(True)
-		layout.addWidget(title)
-
-		# Поле пароля
-		password_layout = QHBoxLayout()
-		password_layout.addWidget(QLabel("Master Password:"))
+		# 2. ПОЛЯ ВВОДА
 		self.password_input = QLineEdit()
+		self.password_input.setPlaceholderText("Master password...")
 		self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-		self.password_input.returnPressed.connect(self.accept_password)
-		password_layout.addWidget(self.password_input)
-		layout.addLayout(password_layout)
+		self.password_input.setFixedHeight(40)
+		self.password_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-		# Чекбокс показать пароль
-		self.show_password_checkbox = QCheckBox("Show password")
-		self.show_password_checkbox.stateChanged.connect(self.toggle_password_visibility)
-		layout.addWidget(self.show_password_checkbox)
+		layout.addWidget(self.password_input)
 
-		# Подтверждение пароля (только при создании)
 		if self.is_first_time:
-			confirm_layout = QHBoxLayout()
-			confirm_layout.addWidget(QLabel("Confirm Password:"))
 			self.confirm_input = QLineEdit()
+			self.confirm_input.setPlaceholderText("Confirm password...")
 			self.confirm_input.setEchoMode(QLineEdit.EchoMode.Password)
-			self.confirm_input.returnPressed.connect(self.accept_password)
-			confirm_layout.addWidget(self.confirm_input)
-			layout.addLayout(confirm_layout)
+			self.confirm_input.setFixedHeight(40)
+			self.confirm_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+			layout.addWidget(self.confirm_input)
 
-		# Кнопки
-		button_layout = QHBoxLayout()
-		ok_btn = QPushButton("OK")
-		ok_btn.clicked.connect(self.accept_password)
-		cancel_btn = QPushButton("Cancel")
-		cancel_btn.clicked.connect(self.reject)
-		button_layout.addWidget(ok_btn)
-		button_layout.addWidget(cancel_btn)
-		layout.addLayout(button_layout)
+		# 3. ЧЕКБОКС
+		self.show_pass = QCheckBox("Show characters")
+		self.show_pass.stateChanged.connect(self.toggle_password_visibility)
+		layout.addWidget(self.show_pass)
 
-		self.setLayout(layout)
-		self.password_input.setFocus()
+		# 4. КНОПКИ
+		btn_layout = QHBoxLayout()
+		self.ok_btn = QPushButton("UNLOCK" if not self.is_first_time else "CREATE")
+		self.ok_btn.setFixedHeight(35)
+		self.ok_btn.clicked.connect(self.accept_password)
+		
+		self.exit_btn = QPushButton("EXIT")
+		self.exit_btn.setFixedHeight(35)
+		self.exit_btn.setObjectName("SecondaryBtn")
+		self.exit_btn.clicked.connect(self.reject)
+
+		btn_layout.addWidget(self.ok_btn)
+		btn_layout.addWidget(self.exit_btn)
+		layout.addLayout(btn_layout)
+
+		# Упаковываем контейнер в основной лейаут окна
+		final_layout = QVBoxLayout(self)
+		final_layout.setContentsMargins(0, 0, 0, 0)
+		final_layout.addWidget(self.main_container)
+
+		# Авто-подбор размера под контент
+		self.adjustSize()
+		self.setFixedWidth(350) # Ширину держим ровно
 	
 	def toggle_password_visibility(self, state):
 		if state == Qt.CheckState.Checked.value:
@@ -95,19 +100,36 @@ class MasterPasswordDialog(QDialog):
 		password = self.password_input.text()
 
 		if not password:
+			self.show_error('Error: Password cannot be empty!')
 			return
 
 		if self.is_first_time:
 			confirm = self.confirm_input.text()
 			if password != confirm:
-				self.password_input.clear()
-				self.confirm_input.clear()
-				self.password_input.setFocus()
-				self.setWindowTitle("Passwords don't match - try again")
+				self.show_error("Error: Password don't match!")
+				return
+		else:
+			try:
+				temp_storage = PasswordStorage(password)
+				if not temp_storage.verify_master_password():
+					self.show_error('Error: Wrong master password!')
+					return
+			except Exception as e:
+				self.show_error('Error: Could not verufy vault.')
 				return
 
 		self.password = password
 		self.accept()
+
+	def show_error(self, text):
+		self.password_input.clear()
+		if self.is_first_time:
+			self.confirm_input.clear()
+		self.password_input.setFocus()
+		self.subtitle.setText(text)
+		self.subtitle.setStyleSheet('color: #E63946; font-size: 11px;')
 	
 	def get_password(self):
 		return self.password
+
+	

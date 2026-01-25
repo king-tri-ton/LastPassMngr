@@ -2,8 +2,8 @@
 
 import os
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, 
-							 QLabel, QLineEdit, QPushButton, QMessageBox, QComboBox)
-from PyQt6.QtCore import Qt, QTimer
+							 QLabel, QLineEdit, QPushButton, QComboBox, QWidget)
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QScreen, QIcon
 
 class SavePasswordDialog(QDialog):
@@ -17,75 +17,95 @@ class SavePasswordDialog(QDialog):
 
 	def init_ui(self):
 		self.setWindowTitle("Save Password")
-		self.setFixedSize(400, 150)
+		self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+		self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-		layout = QVBoxLayout()
+		# Используем тот же контейнер для золотой рамки
+		self.main_container = QWidget()
+		self.main_container.setObjectName("MainContainer")
 
-		# Сайт
-		site_layout = QHBoxLayout()
-		site_layout.addWidget(QLabel("Site:"))
+		layout = QVBoxLayout(self.main_container)
+		layout.setContentsMargins(25, 25, 25, 25)
+		layout.setSpacing(12)
+
+		# ЗАГОЛОВОК
+		title = QLabel("SAVE PASSWORD")
+		title.setObjectName("GradientLabel")
+		title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		layout.addWidget(title)
+
+		# Errors
+		self.error_label = QLabel("")
+		self.error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		self.error_label.setStyleSheet("color: #E63946; font-size: 11px;")
+		layout.addWidget(self.error_label)
+
+		# ПОЛЯ (Сайт, Логин, Категория)
 		self.site_input = QLineEdit()
-		site_layout.addWidget(self.site_input)
-		layout.addLayout(site_layout)
+		self.site_input.setPlaceholderText("Site (e.g. google.com)")
+		self.site_input.setFixedHeight(35)
+		layout.addWidget(self.site_input)
 
-		# Логин
-		login_layout = QHBoxLayout()
-		login_layout.addWidget(QLabel("Login:"))
 		self.login_input = QLineEdit()
-		login_layout.addWidget(self.login_input)
-		layout.addLayout(login_layout)
+		self.login_input.setPlaceholderText("Login / Email")
+		self.login_input.setFixedHeight(35)
+		layout.addWidget(self.login_input)
 
-		# Категория
-		category_layout = QHBoxLayout()
-		category_layout.addWidget(QLabel("Category:"))
+		# Категория (выпадающий список)
 		self.category_combo = QComboBox()
+		self.category_combo.setFixedHeight(35)
+		self.category_combo.addItems(self.storage.get_categories())
+		if "General" in self.storage.get_categories():
+		    self.category_combo.setCurrentText("General")
+		layout.addWidget(self.category_combo)
 
-		# Загружаем категории
-		categories = self.storage.get_categories()
-		self.category_combo.addItems(categories)
+		# ПАРОЛЬ (Максимально простой и жесткий код)
+		pass_layout = QHBoxLayout()
+		pass_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+		pass_layout.setSpacing(10)
+		pass_layout.setContentsMargins(0, 0, 0, 0)
 
-		# General по умолчанию
-		if "General" in categories:
-			self.category_combo.setCurrentText("General")
-
-		category_layout.addWidget(self.category_combo)
-		layout.addLayout(category_layout)
-
-		# Пароль
-		password_layout = QHBoxLayout()
-		password_layout.addWidget(QLabel("Password:"))
 		self.password_input = QLineEdit()
 		self.password_input.setText(self.password)
 		self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
 		self.password_input.setReadOnly(True)
-		password_layout.addWidget(self.password_input)
+		self.password_input.setFixedHeight(35)
+		self.password_input.setStyleSheet("color: #F2C73C; font-weight: bold;")
 
-		# Кнопка показать пароль
-		self.show_password_btn = QPushButton("Show")
-		self.show_password_btn.setFixedWidth(60)
-		self.show_password_btn.clicked.connect(self.toggle_password_visibility)
-		password_layout.addWidget(self.show_password_btn)
+		self.show_pass_btn = QPushButton("Show")
+		self.show_pass_btn.setObjectName("SecondaryBtn")
+		self.show_pass_btn.setFixedSize(70, 35) 
+		self.show_pass_btn.clicked.connect(self.toggle_password_visibility)
 
-		layout.addLayout(password_layout)
+		pass_layout.addWidget(self.password_input)
+		pass_layout.addWidget(self.show_pass_btn)
 
-		# Кнопки
-		button_layout = QHBoxLayout()
-		save_btn = QPushButton("Save")
+		layout.addLayout(pass_layout)
+
+		# КНОПКИ
+		btn_layout = QHBoxLayout()
+		save_btn = QPushButton("SAVE")
+		save_btn.setFixedHeight(35)
 		save_btn.clicked.connect(self.save_password)
-		cancel_btn = QPushButton("Cancel")
+
+		cancel_btn = QPushButton("CANCEL")
+		cancel_btn.setFixedHeight(35)
+		cancel_btn.setObjectName("SecondaryBtn")
 		cancel_btn.clicked.connect(self.close)
-		button_layout.addWidget(save_btn)
-		button_layout.addWidget(cancel_btn)
-		layout.addLayout(button_layout)
 
-		self.setLayout(layout)
-		self.site_input.setFocus()
+		btn_layout.addWidget(save_btn)
+		btn_layout.addWidget(cancel_btn)
+		layout.addLayout(btn_layout)
 
-		# Автоматическое закрытие через 30 секунд
-		# QTimer.singleShot(30000, self.close)
+		# Финальная упаковка
+		final_layout = QVBoxLayout(self)
+		final_layout.setContentsMargins(0, 0, 0, 0)
+		final_layout.addWidget(self.main_container)
+
+		self.adjustSize()
+		self.setFixedWidth(350)
 
 	def set_window_icon(self):
-		"""Загружает иконку, как в app.py"""
 		if getattr(__import__("sys"), "frozen", False):
 			base_path = __import__("sys")._MEIPASS
 		else:
@@ -109,15 +129,14 @@ class SavePasswordDialog(QDialog):
 		category = self.category_combo.currentText()
 
 		if not site or not login:
-			QMessageBox.warning(self, "Warning", "Fill all fields")
+			self.error_label.setText('Error: Fill all fields!')
 			return
 
 		try:
 			self.storage.save_password(site, login, self.password, category)
-			QMessageBox.information(self, "Success", "Password saved")
 			self.close()
 		except Exception as e:
-			QMessageBox.critical(self, "Error", str(e))
+			self.error_label.setText(f"Error: {str(e)}")
 
 	def closeEvent(self, event):
 		event.accept()
@@ -125,7 +144,7 @@ class SavePasswordDialog(QDialog):
 	def toggle_password_visibility(self):
 		if self.password_input.echoMode() == QLineEdit.EchoMode.Password:
 			self.password_input.setEchoMode(QLineEdit.EchoMode.Normal)
-			self.show_password_btn.setText("Hide")
+			self.show_pass_btn.setText("Hide")
 		else:
 			self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-			self.show_password_btn.setText("Show")
+			self.show_pass_btn.setText("Show")

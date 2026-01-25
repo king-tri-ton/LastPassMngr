@@ -2,11 +2,17 @@
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 							 QTableWidget, QTableWidgetItem, QPushButton, 
-							 QLineEdit, QLabel, QMessageBox, QHeaderView)
-from PyQt6.QtCore import Qt
+							 QLineEdit, QLabel, QHeaderView,
+							 QListWidget, QMenu)
+from PyQt6.QtCore import Qt, QPoint, QSettings, QTimer
 import pyperclip
 
-class PasswordManagerWindow(QMainWindow):
+from utils import DraggableMixin
+from editor import EditorDialog
+from notice import NoticeDialog
+from input import InputDialog
+
+class PasswordManagerWindow(DraggableMixin, QMainWindow):
 	def __init__(self, storage, icon=None):
 		super().__init__()
 		self.storage = storage
@@ -15,14 +21,32 @@ class PasswordManagerWindow(QMainWindow):
 		self.init_ui()
 
 	def init_ui(self):
-		self.setWindowTitle("LastPassMngr")
-		self.setGeometry(100, 100, 700, 400)
+		self._drag_pos = QPoint()
+		self.setWindowTitle("Simple Password Manager by King Triton")
+		
+		self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+		self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-		central_widget = QWidget()
-		self.setCentralWidget(central_widget)
+		self.setMinimumSize(800, 333)
+		self.settings = QSettings('TritonCorp', 'SimPassMngr')
+		geometry = self.settings.value('geometry')
+		if geometry:
+			self.restoreGeometry(geometry)
+		else:
+			self.resize(800, 333)
 
-		# Главный layout с разделением на левую панель и правую
-		main_layout = QHBoxLayout()
+		bg_widget = QWidget()
+		self.setCentralWidget(bg_widget)
+		bg_layout = QVBoxLayout(bg_widget)
+		bg_layout.setContentsMargins(0, 0, 0, 0)
+
+		self.main_container = QWidget()
+		self.main_container.setObjectName('MainContainer')
+		self.main_container.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+		bg_layout.addWidget(self.main_container)
+
+		main_layout = QHBoxLayout(self.main_container)
+		main_layout.setContentsMargins(15, 15, 15, 15)
 
 		# === ЛЕВАЯ ПАНЕЛЬ - Категории ===
 		left_panel = QVBoxLayout()
@@ -30,19 +54,16 @@ class PasswordManagerWindow(QMainWindow):
 		left_panel.addWidget(QLabel("Categories:"))
 
 		# Список категорий
-		from PyQt6.QtWidgets import QListWidget
 		self.categories_list = QListWidget()
 		self.categories_list.currentItemChanged.connect(self.on_category_changed)
 		left_panel.addWidget(self.categories_list)
 
 		# Кнопки управления категориями
 		category_buttons = QHBoxLayout()
-		add_category_btn = QPushButton("+")
-		add_category_btn.setFixedWidth(40)
+		add_category_btn = QPushButton("Add")
 		add_category_btn.clicked.connect(self.add_category)
 
-		delete_category_btn = QPushButton("-")
-		delete_category_btn.setFixedWidth(40)
+		delete_category_btn = QPushButton("Delete")
 		delete_category_btn.clicked.connect(self.delete_category)
 
 		category_buttons.addWidget(add_category_btn)
@@ -65,19 +86,42 @@ class PasswordManagerWindow(QMainWindow):
 		refresh_btn.clicked.connect(self.load_passwords)
 		search_layout.addWidget(refresh_btn)
 
+		# Кнопка "Закрыть"
+		exit_btn = QPushButton('CLOSE')
+		exit_btn.setObjectName('CloseBtn')
+		exit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+		exit_btn.clicked.connect(self.close)
+		search_layout.addWidget(exit_btn)
+
 		right_panel.addLayout(search_layout)
 
 		# Таблица
 		self.table = QTableWidget()
 		self.table.setColumnCount(4)
-		self.table.setHorizontalHeaderLabels(['Site', 'Login', 'Password', 'Actions'])
+		self.table.setHorizontalHeaderLabels(['Site', 'Login / Email', 'Password', 'Actions'])
+
+		self.table.horizontalHeader().setStretchLastSection(True)
+
+		self.table.verticalHeader().setDefaultSectionSize(45)
 
 		header = self.table.horizontalHeader()
 		header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
 		header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 		header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
 		header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-		self.table.setColumnWidth(3, 250)
+		self.table.setColumnWidth(3, 240)
+
+		self.table.setTextElideMode(Qt.TextElideMode.ElideNone)
+		header.setStretchLastSection(False)
+
+		self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+		self.table.customContextMenuRequested.connect(self.show_context_menu)
+
+		self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
+		self.table.setWordWrap(False)
+
+		self.table.verticalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+		self.table.verticalHeader().setFixedWidth(40)
 
 		right_panel.addWidget(self.table)
 
@@ -85,10 +129,26 @@ class PasswordManagerWindow(QMainWindow):
 		main_layout.addLayout(left_panel, 1)   # 1 часть ширины
 		main_layout.addLayout(right_panel, 3)  # 3 части ширины
 
-		central_widget.setLayout(main_layout)
-
 		self.load_categories()
 		self.load_passwords()
+
+		# --- СТАТУС-БАР (StatusBar) ---
+		self.status_layout = QHBoxLayout()
+		
+		# Левая часть - Сообщения
+		self.status_message = QLabel("")
+		self.status_message.setObjectName("StatusMsg")
+		
+		# Правая часть - Брендинг
+		self.branding_label = QLabel("LastPassMngr by King Triton v3.0.0")
+		self.branding_label.setObjectName("BrandingLabel")
+		
+		self.status_layout.addWidget(self.status_message)
+		self.status_layout.addStretch()
+		self.status_layout.addWidget(self.branding_label)
+		
+		# Добавляем статус-бар в правую панель под таблицу
+		right_panel.addLayout(self.status_layout)
 
 	def load_passwords(self):
 		self.table.setRowCount(0)
@@ -120,25 +180,41 @@ class PasswordManagerWindow(QMainWindow):
 		row = self.table.rowCount()
 		self.table.insertRow(row)
 
-		self.table.setItem(row, 0, QTableWidgetItem(site))
-		self.table.setItem(row, 1, QTableWidgetItem(login))
+		item_site = QTableWidgetItem(site)
+		item_site.setFlags(item_site.flags() ^ Qt.ItemFlag.ItemIsEditable) # Только чтение
+		item_site.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+		item_login = QTableWidgetItem(login)
+		item_login.setFlags(item_login.flags() ^ Qt.ItemFlag.ItemIsEditable)
+		item_login.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
 		password_item = QTableWidgetItem('••••••••••••')
 		password_item.setData(Qt.ItemDataRole.UserRole, password)
+		password_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+		self.table.setItem(row, 0, item_site)
+		self.table.setItem(row, 1, item_login)
 		self.table.setItem(row, 2, password_item)
 
 		# Кнопки
 		actions_widget = QWidget()
 		actions_layout = QHBoxLayout(actions_widget)
-		actions_layout.setContentsMargins(5, 2, 5, 2)
+		actions_layout.setContentsMargins(5, 4, 5, 4)
+		actions_layout.setSpacing(8)
 
 		show_btn = QPushButton("Show")
+		show_btn.setObjectName("ShowBtn")
+		show_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 		show_btn.clicked.connect(lambda: self.toggle_password(row))
 
 		copy_btn = QPushButton("Copy")
+		copy_btn.setObjectName("CopyBtn")
+		copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 		copy_btn.clicked.connect(lambda: self.copy_password(row))
 
 		delete_btn = QPushButton("Delete")
+		delete_btn.setObjectName("DeleteBtn") # Красная
+		delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 		delete_btn.clicked.connect(lambda: self.delete_password(row))
 
 		actions_layout.addWidget(show_btn)
@@ -165,7 +241,12 @@ class PasswordManagerWindow(QMainWindow):
 		password_item = self.table.item(row, 2)
 		password = password_item.data(Qt.ItemDataRole.UserRole)
 		pyperclip.copy(password)
-		self.statusBar().showMessage("Copied", 2000)
+		
+		# Пишем в наш кастомный лейбл
+		self.status_message.setText("Copied to clipboard!")
+		
+		# Очистка сообщения через 3 секунды
+		QTimer.singleShot(3000, lambda: self.status_message.setText(""))
 
 	def delete_password(self, row):
 		site = self.table.item(row, 0).text()
@@ -178,13 +259,18 @@ class PasswordManagerWindow(QMainWindow):
 
 		category = current_item.text()
 
-		reply = QMessageBox.question(self, 'Delete', 
-									 f'Delete password for {site}?',
-									 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+		dialog = NoticeDialog(
+				message=f"Are you sure you want to delete password for {site}?",
+				title="Confirm Delete",
+				confirm_mode=True,
+				parent=self
+			)
 
-		if reply == QMessageBox.StandardButton.Yes:
+		if dialog.exec():
 			self.storage.delete_password(site, login, category)
 			self.load_passwords()
+			self.status_message.setText("Entry deleted.")
+			QTimer.singleShot(3000, lambda: self.status_message.setText(""))
 
 	def filter_passwords(self, text):
 		for row in range(self.table.rowCount()):
@@ -197,24 +283,33 @@ class PasswordManagerWindow(QMainWindow):
 				self.table.setRowHidden(row, True)
 
 	def closeEvent(self, event):
+		self.settings.setValue('geometry', self.saveGeometry())
 		self.hide()
 		event.ignore()
 
 	def load_categories(self):
-		"""Загружает список категорий"""
+		"""Загружает список категорий с General наверху"""
 		self.categories_list.clear()
 		passwords = self.storage.get_passwords()
+		
+		# Получаем все названия категорий
+		all_categories = list(passwords.keys())
+		
+		# Если категорий вообще нет — создаем дефолтный список
+		if not all_categories:
+			all_categories = ["General"]
+		
+		# Сортируем: убираем General, сортируем остальное по алфавиту
+		other_categories = sorted([c for c in all_categories if c != "General"])
+		
+		# Собираем итоговый список: General всегда первый
+		final_list = ["General"] + other_categories
 
-		for category in passwords.keys():
+		for category in final_list:
 			self.categories_list.addItem(category)
 
-		# Если категорий нет, добавляем General
-		if self.categories_list.count() == 0:
-			self.categories_list.addItem("General")
-
-		# Выбираем первую категорию
-		if self.categories_list.count() > 0:
-			self.categories_list.setCurrentRow(0)
+		# Выбираем первую (General) по умолчанию
+		self.categories_list.setCurrentRow(0)
 
 	def on_category_changed(self, current, previous):
 		"""Обработчик смены категории"""
@@ -222,32 +317,33 @@ class PasswordManagerWindow(QMainWindow):
 			self.load_passwords()
 
 	def add_category(self):
-		"""Добавляет новую категорию"""
-		from PyQt6.QtWidgets import QInputDialog
+		dialog = InputDialog(title="New Category", label_text="Category name:", parent=self)
+		
+		if dialog.exec():
+			category_name = dialog.result_value
 
-		category_name, ok = QInputDialog.getText(self, "New Category", "Category name:")
+			if category_name:
+				for i in range(self.categories_list.count()):
+					if self.categories_list.item(i).text().lower() == category_name.lower():
+						warn = NoticeDialog(
+							message=f"Category '{category_name}' already exists!",
+							title="Warning",
+							confirm_mode=False,
+							parent=self
+						)
+						warn.exec()
+						return
 
-		if ok and category_name.strip():
-			category_name = category_name.strip()
+				self.storage.add_category(category_name)
+				self.load_categories()
 
-			# Проверяем, не существует ли уже
-			for i in range(self.categories_list.count()):
-				if self.categories_list.item(i).text() == category_name:
-					QMessageBox.warning(self, "Warning", "Category already exists")
-					return
-
-			# Добавляем категорию
-			self.storage.add_category(category_name)
-			self.load_categories()
-
-			# Выбираем новую категорию
-			for i in range(self.categories_list.count()):
-				if self.categories_list.item(i).text() == category_name:
-					self.categories_list.setCurrentRow(i)
-					break
+				for i in range(self.categories_list.count()):
+					if self.categories_list.item(i).text() == category_name:
+						self.categories_list.setCurrentRow(i)
+						break
 
 	def delete_category(self):
-		"""Удаляет категорию"""
+		"""Удаляет категорию через кастомный NoticeDialog"""
 		current_item = self.categories_list.currentItem()
 
 		if not current_item:
@@ -255,15 +351,112 @@ class PasswordManagerWindow(QMainWindow):
 
 		category = current_item.text()
 
-		# Нельзя удалить General
+		# 1. Защита General
 		if category == "General":
-			QMessageBox.warning(self, "Warning", "Cannot delete 'General' category")
+			warn = NoticeDialog(
+				message="Cannot delete 'General' category.\nThis is your default vault.",
+				title="Access Denied",
+				confirm_mode=False,
+				parent=self
+			)
+			warn.exec()
 			return
 
-		reply = QMessageBox.question(self, 'Delete Category', 
-									 f'Delete category "{category}" and all passwords in it?',
-									 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+		# 2. Подтверждение удаления
+		dialog = NoticeDialog(
+			message=f'Delete category "{category}" and all passwords in it? This action cannot be undone.',
+			title="Delete Category",
+			confirm_mode=True,
+			parent=self
+		)
 
-		if reply == QMessageBox.StandardButton.Yes:
+		if dialog.exec():
 			self.storage.delete_category(category)
 			self.load_categories()
+			self.status_message.setText(f"Category '{category}' removed.")
+			QTimer.singleShot(3000, lambda: self.status_message.setText(""))
+
+	def show_context_menu(self, pos):
+		index = self.table.indexAt(pos)
+		if not index.isValid():
+			return
+
+		row = index.row()
+		site = self.table.item(row, 0).text()
+		login = self.table.item(row, 1).text()
+		# Получаем текущую категорию из UI (списка слева)
+		current_category = self.categories_list.currentItem().text()
+
+		menu = QMenu(self)
+		
+		# Основные действия
+		edit_action = menu.addAction("Edit Entry")
+		copy_login_action = menu.addAction("Copy Login")
+		
+		# --- ВЛОЖЕННОЕ МЕНЮ "Move to" ---
+		move_menu = menu.addMenu("Move to")
+		
+		# Получаем список всех категорий из хранилища
+		categories = self.storage.get_categories() # Предположим, такой метод есть
+		
+		for category in categories:
+			if category != current_category:  # Не показываем ту, где мы уже находимся
+				action = move_menu.addAction(category)
+				# Используем замыкание для передачи категории в обработчик
+				action.triggered.connect(lambda checked, c=category: self.move_entry(row, c))
+		
+		menu.addSeparator()
+		delete_action = menu.addAction("Delete")
+
+		# Выполняем меню
+		action = menu.exec(self.table.viewport().mapToGlobal(pos))
+
+		if action == edit_action:
+			self.edit_password_entry(row)
+		elif action == copy_login_action:
+			pyperclip.copy(login)
+			self.status_message.setText("Login copied!")
+			QTimer.singleShot(3000, lambda: self.status_message.setText(""))
+		elif action == delete_action:
+			self.delete_password(row)
+
+	def move_entry(self, row, new_category):
+		site = self.table.item(row, 0).text()
+		login = self.table.item(row, 1).text()
+		old_category = self.categories_list.currentItem().text()
+		
+		# Вызываем метод перемещения в твоем storage
+		# Тебе нужно будет реализовать этот метод в классе Storage
+		if self.storage.move_password(site, login, old_category, new_category):
+			self.load_passwords() # Перезагружаем таблицу
+			self.status_message.setText(f"Moved to {new_category}")
+			QTimer.singleShot(3000, lambda: self.status_message.setText(""))
+		else:
+			print("Error: Failed to move entry")
+
+	def edit_password_entry(self, row):
+		# Достаем старые данные
+		old_site = self.table.item(row, 0).text()
+		old_login = self.table.item(row, 1).text()
+		old_password = self.table.item(row, 2).data(Qt.ItemDataRole.UserRole)
+		current_category = self.categories_list.currentItem().text()
+
+		# Открываем диалог
+		dialog = EditorDialog(self, old_site, old_login, old_password)
+		if dialog.exec():
+			new_data = dialog.result_data
+			
+			# Сначала удаляем старую запись, потом добавляем новую
+			# Это самый простой способ "редактирования" в текущей архитектуре storage
+			self.storage.delete_password(old_site, old_login, current_category)
+			self.storage.save_password(
+				new_data['site'], 
+				new_data['login'], 
+				new_data['password'], 
+				current_category
+			)
+			
+			self.load_passwords()
+			self.status_message.setText("Entry updated successfully!")
+			QTimer.singleShot(3000, lambda: self.status_message.setText(""))
+
